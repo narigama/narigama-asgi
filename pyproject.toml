@@ -1,0 +1,52 @@
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+name = "narigama-asgi"
+version = "0.1.0"
+description = ""
+authors = ["David Smith <david@narigama.dev>"]
+readme = "README.md"
+packages = [{include = "narigama_asgi"}]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+fastapi = "*"
+asyncpg = "*"
+
+[tool.poetry.group.dev.dependencies]
+ruff = "*"
+black = "*"
+
+[tool.black]
+line-length = 120
+target-version = ["py310"]
+
+[tool.ruff]
+line-length = 120
+src = ["narigama_asgi"]
+exclude = ["tests", "tasks.py"]
+select = ["E", "F", "W", "C90", "I", "D", "UP", "S", "B", "A", "COM", "T20", "Q", "SIM", "PTH"]
+ignore = [
+    "D",        # TODO: remove, ignore all documentation errors for now
+    "D100",     # missing docstring on public module
+    "D105",     # missing docstring on magic methods
+    "D401",     # first line of docstring should be in imperative mood
+    "UP032",    # require f-strings over .format
+    "B008",     # ignore inline calls, blocks fastapi.Depends
+]
+
+[tool.ruff.per-file-ignores]
+"narigama_asgi/__init__.py" = ["F401"]
+
+[tool.ruff.isort]
+known-first-party = ["narigama_asgi"]
+force-single-line = true
+lines-after-imports = 2
+
+[tool.ruff.mccabe]
+max-complexity = 10
+
+[tool.ruff.flake8-builtins]
+builtins-ignorelist = ["id"]
