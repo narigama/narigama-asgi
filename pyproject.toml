@@ -14,10 +14,12 @@ packages = [{include = "narigama_asgi"}]
 python = "^3.10"
 fastapi = "*"
 asyncpg = "*"
+pypika = "*"
 
 [tool.poetry.group.dev.dependencies]
 ruff = "*"
 black = "*"
+uvicorn = "*"
 
 [tool.black]
 line-length = 120
