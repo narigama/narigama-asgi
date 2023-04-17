@@ -1,51 +1,57 @@
 [build-system]
-requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+requires      = ["poetry-core"]
 
 [tool.poetry]
-name = "narigama-asgi"
-version = "0.1.0"
-description = ""
-authors = ["David Smith <david@narigama.dev>"]
-readme = "README.md"
-packages = [{include = "narigama_asgi"}]
+description = "Useful utilities for ASGI based applications."
+name        = "narigama-asgi"
+readme      = "README.md"
+version     = "0.1.0"
+
+authors  = ["David Smith <david@narigama.dev>"]
+packages = [{ include = "narigama_asgi" }]
 
 [tool.poetry.dependencies]
-python = "^3.10"
-fastapi = "*"
-asyncpg = "*"
-pypika = "*"
+python = "^3.11"
+
+argon2-cffi = { version = "*" }
+arrow       = { version = "*" }
+asyncpg     = { version = "*" }
+fastapi     = { version = "*" }
+passlib     = { version = "*" }
+pypika      = { version = "*" }
 
 [tool.poetry.group.dev.dependencies]
-ruff = "*"
-black = "*"
-uvicorn = "*"
+black   = { version = "*" }
+ruff    = { version = "*" }
+uvicorn = { version = "*" }
 
 [tool.black]
-line-length = 120
+line-length    = 120
 target-version = ["py310"]
 
 [tool.ruff]
-line-length = 120
-src = ["narigama_asgi"]
 exclude = ["tests", "tasks.py"]
-select = ["E", "F", "W", "C90", "I", "D", "UP", "S", "B", "A", "COM", "T20", "Q", "SIM", "PTH"]
 ignore = [
-    "D",        # TODO: remove, ignore all documentation errors for now
-    "D100",     # missing docstring on public module
-    "D105",     # missing docstring on magic methods
-    "D401",     # first line of docstring should be in imperative mood
-    "UP032",    # require f-strings over .format
-    "B008",     # ignore inline calls, blocks fastapi.Depends
+    "D",     # TODO: remove, ignore all documentation errors for now
+    "D100",  # missing docstring on public module
+    "D105",  # missing docstring on magic methods
+    "D401",  # first line of docstring should be in imperative mood
+    "UP032", # require f-strings over .format
+    "B008",  # ignore inline calls, blocks fastapi.Depends
 ]
+line-length = 120
+select = ["E", "F", "W", "C90", "I", "D", "UP", "S", "B", "A", "COM", "T20", "Q", "SIM", "PTH"]
+src = ["narigama_asgi"]
 
 [tool.ruff.per-file-ignores]
 "narigama_asgi/__init__.py" = ["F401"]
 
 [tool.ruff.isort]
-known-first-party = ["narigama_asgi"]
-force-single-line = true
+force-single-line   = true
 lines-after-imports = 2
+
+known-first-party = ["narigama_asgi"]
 
 [tool.ruff.mccabe]
 max-complexity = 10

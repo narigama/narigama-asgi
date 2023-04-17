@@ -1,6 +1,7 @@
 import dataclasses
 import datetime
 import json
+import secrets
 import uuid
 
 import asyncpg
@@ -14,38 +15,38 @@ from narigama_asgi.problem import Problem
 
 QUERY_TOKEN_SCHEMA_CREATE = """
 create table if not exists "token" (
-    "id" uuid not null unique default gen_random_uuid() primary key,
+    "id" uuid not null default gen_random_uuid(),
     "created_at" timestamptz not null default date_trunc('second', current_timestamp),
+    "expires_at" timestamptz not null,
 
-    "expiry_at" timestamptz not null,
-    "kind" text not null,
-    "data" json not null
-)
+    "value" text not null,
+    "context" json not null default '{}'::json,
+
+    primary key("id"),
+    unique("value")
+);
 """.strip()
 
 QUERY_TOKEN_CREATE = """
-insert into "token" ("expiry_at", "kind", "data")
+insert into "token" ("expires_at", "value", "context")
 values ($1, $2, $3)
-returning "id", "created_at", "expiry_at", "kind", "data"
+returning "id", "created_at", "expires_at", "value", "context"
 """.strip()
-
 
 QUERY_TOKEN_DELETE_BY_ID = """
 delete from "token"
 where "id" = $1
 """.strip()
 
-
-QUERY_TOKEN_GET_BY_ID = """
-select "id", "created_at", "expiry_at", "kind", "data"
+QUERY_TOKEN_GET_BY_VALUE = """
+select "id", "created_at", "expires_at", "value", "context"
 from "token"
-where "id" = $1
+where "value" = $1
 """.strip()
-
 
 QUERY_TOKEN_CLEANUP = """
 delete from "token"
-where "expiry_at" <= current_timestamp
+where "expires_at" <= $1
 """.strip()
 
 
@@ -71,52 +72,53 @@ class TokenExpiredError(Problem):
 class Token:
     id: uuid.UUID
     created_at: datetime.datetime
-    expiry_at: datetime.datetime
+    expires_at: datetime.datetime
 
-    kind: str
-    data: dict  # a payload for this Token, use it to store whatever you wish
+    value: str  # the value sent to the client to identify this token
+    context: dict  # a payload for this Token, use it to store whatever you wish
 
     @classmethod
     def from_row(cls, row: asyncpg.Record):
         return cls(
             id=row["id"],
             created_at=row["created_at"],
-            expiry_at=row["expiry_at"],
-            kind=row["kind"],
-            data=json.loads(row["data"]),
+            expires_at=row["expires_at"],
+            value=row["value"],
+            context=json.loads(row["context"]),
         )
 
 
-async def _token_get_by_id(db: asyncpg.Connection, token_id: str) -> Token:
+async def _token_get_by_value(db: asyncpg.Connection, token_value: str) -> Token:
     """Fetch a token by it's id."""
-    row = await db.fetchrow(QUERY_TOKEN_GET_BY_ID, token_id)
+    row = await db.fetchrow(QUERY_TOKEN_GET_BY_VALUE, token_value)
     if not row:
-        raise TokenNotFoundError(token_id)
+        raise TokenNotFoundError(token_value)
     return Token.from_row(row)
 
 
 async def create_token(
     db: asyncpg.Connection,
-    expiry_at: int | datetime.timedelta | datetime.datetime,
-    data: dict,
-    kind: str | None = None,
+    expires_at: int | datetime.timedelta | datetime.datetime,
+    context: dict,
+    value: str | None = None,
 ) -> Token:
     """Create a new token.
 
-    The token kind can be used to help discriminate in the future, but you'll
-    probably fetch tokens by their id. Once fetched, the `data` field will be
-    contextual to it's application.
+    The value should be a cryptographically sound, high entropy, unique value.
+    You'll be selecting this token by that value later. Store whatever you want
+    in context.
     """
-    # int -> delta -> timestamp
-    if isinstance(expiry_at, int):
-        expiry_at = datetime.timedelta(seconds=expiry_at)
-    if isinstance(expiry_at, datetime.timedelta):
-        expiry_at = util.now() + expiry_at
+    # int -> delta
+    if isinstance(expires_at, int):
+        expires_at = datetime.timedelta(seconds=expires_at)
 
-    kind = kind or "token"
-    data = json.dumps(data)
-    row = await db.fetchrow(QUERY_TOKEN_CREATE, expiry_at, kind, data)
+    # delta -> timestamp
+    if isinstance(expires_at, datetime.timedelta):
+        expires_at = util.now() + expires_at
 
+    value = value or secrets.token_urlsafe(32)
+    context = json.dumps(context)
+    row = await db.fetchrow(QUERY_TOKEN_CREATE, expires_at, value, context)
     return Token.from_row(row)
 
 
@@ -125,17 +127,23 @@ async def delete_token(db: asyncpg.Connection, token: Token):
     await db.execute(QUERY_TOKEN_DELETE_BY_ID, token.id)
 
 
-async def cleanup_expired_tokens(db: asyncpg.Connection):
+async def cleanup_expired_tokens(db: asyncpg.Connection, timestamp: datetime.datetime | None = None):
     """Find all tokens that have expired, and remove them."""
-    await db.execute(QUERY_TOKEN_CLEANUP)
+    timestamp = timestamp or util.now()
+    await db.execute(QUERY_TOKEN_CLEANUP, timestamp)
 
 
-def require_token(name: str | None = None):
-    """Attempt to extract a token from the request.
+def require_token(*, name: str | None = None, handler=None):
+    """Attempt to extract a token from a request.
 
-    The token name will be checked via query -> header -> cookie, in that order, stopping at the first one found.
+    The token value will be checked in order via query -> header -> cookie, stopping at the first one found.
+
+    This function will by default, return the Token. If you wish to transform
+    the token into another object, pass a `handler` coroutine that accepts a
+    database connection (asyncpg.Connection) and a token (Token), returning
+    whatever you want from that.
     """
-    name = "token-{}".format(name) if name else "token"  # "token" unless kind is provided
+    name = name or "token"
 
     async def dep_get_token(
         db: asyncpg.Connection = fastapi.Depends(postgres.get_db),
@@ -147,20 +155,26 @@ def require_token(name: str | None = None):
         await cleanup_expired_tokens(db)
 
         # grab the token_id in this order
-        token_id = token_query or token_header or token_cookie
+        token_value = token_query or token_header or token_cookie
 
         # no token was provided, by any method :(
-        if not token_id:
+        if not token_value:
             raise TokenRequiredError(name)
 
-        # load token by it's id
-        return await _token_get_by_id(db, token_id)
+        # load token by it's value, optionally transform
+        token = await _token_get_by_value(db, token_value)
+        if handler:
+            return await handler(db, token)
+        return token
 
     return fastapi.Depends(dep_get_token)
 
 
 def install(app: fastapi.FastAPI) -> fastapi.FastAPI:
-    """Install the token manager. This will setup a `token` table within your database. Depends on `postgres`."""
+    """Install the token manager.
+
+    This will setup a `token` table within your database. Depends on `postgres`.
+    """
 
     @app.on_event("startup")
     async def token_manager_startup():

@@ -15,19 +15,18 @@ class Option(Generic[T]):
     _value: T | None = None
 
     def __repr__(self) -> str:
-        if self.has_value:
+        if self.has_value():
             return "Option::Some({})".format(self._value)
         return "Option::None"
 
-    @property
     def has_value(self) -> bool:
         """Check if the Option contains a value or not."""
         return self._value is not None
 
     def get_value(self) -> T:
         """Attempt to get value, raises ValueError if missing."""
-        if not self.has_value:
-            msg = "Option did not contain a value. Use Option.has_value before attempting Option.get_value()."
+        if not self.has_value():
+            msg = "Option did not contain a value. Use Option.has_value() before attempting Option.get_value()."
             raise ValueError(msg)
         return self._value
 
@@ -35,7 +34,7 @@ class Option(Generic[T]):
         """Attempt to get a value, or return the provided default.
 
         The default may either be a value, or a fn() -> U"""
-        if self.has_value:
+        if self.has_value():
             # we have a value, ignore the default
             return self._value
 
@@ -47,6 +46,6 @@ class Option(Generic[T]):
 
         This is eagerly evaluated and immediately applies the mapping."""
         value = None
-        if self.has_value:
+        if self.has_value():
             value = fn(self._value)
         return self.__class__(value)
