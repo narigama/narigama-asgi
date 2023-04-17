@@ -8,13 +8,14 @@ async def get_db(request: fastapi.Request) -> asyncpg.Connection:
     return request.state.database_connection
 
 
-def install(app: fastapi.FastAPI, postgres_dsn: str) -> fastapi.FastAPI:
+def install(app: fastapi.FastAPI, postgres_dsn: str, application_name: str, **server_settings) -> fastapi.FastAPI:
     @app.on_event("startup")
     async def postgres_startup():
         app.state.database_pool = await asyncpg.create_pool(
             dsn=postgres_dsn,
             server_settings={
-                "application_name": "{}".format(app),
+                "application_name": "py_{}".format(application_name),
+                **server_settings,
             },
         )
 

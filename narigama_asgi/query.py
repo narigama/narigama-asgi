@@ -21,5 +21,5 @@ def get_sql(query, params: dict | None = None):
     try:
         return sql.format_map(indexes), args
     except KeyError as ex:
-        err = "Attepmting to build query: `{}`"
+        err = "Attempting to build query: `{}`"
         raise Exception(err.format(sql)) from ex

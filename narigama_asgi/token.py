@@ -160,7 +160,10 @@ def require_token(name: str | None = None):
 
 
 def install(app: fastapi.FastAPI) -> fastapi.FastAPI:
-    """Install the token manager. This will setup a `token` table within your database. Depends on `postgres`."""
+    """Install the token manager.
+
+    This will setup a `token` table within your database. Depends on `postgres`.
+    """
 
     @app.on_event("startup")
     async def token_manager_startup():
