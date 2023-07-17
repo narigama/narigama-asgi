@@ -146,6 +146,7 @@ def require_token(*, name: str | None = None, handler=None):
     name = name or "token"
 
     async def dep_get_token(
+        request: fastapi.Request,
         db: asyncpg.Connection = fastapi.Depends(postgres.get_db),
         token_query: str | None = fastapi.Depends(fastapi.security.APIKeyQuery(name=name, auto_error=False)),
         token_header: str | None = fastapi.Depends(fastapi.security.APIKeyHeader(name=name, auto_error=False)),
@@ -164,7 +165,7 @@ def require_token(*, name: str | None = None, handler=None):
         # load token by it's value, optionally transform
         token = await _token_get_by_value(db, token_value)
         if handler:
-            return await handler(db, token)
+            return await handler(request, db, token)
         return token
 
     return fastapi.Depends(dep_get_token)
