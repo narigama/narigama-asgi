@@ -20,9 +20,11 @@ asyncpg     = { version = "*" }
 fastapi     = { version = "*" }
 passlib     = { version = "*" }
 pypika      = { version = "*" }
+loguru      = { version = "*"}
 
 [tool.poetry.group.dev.dependencies]
 black   = { version = "*" }
+ipython = { version = "*" }
 ruff    = { version = "*" }
 uvicorn = { version = "*" }
 

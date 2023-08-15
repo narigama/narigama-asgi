@@ -34,13 +34,14 @@ def env(key, convert=str, **kwargs):
     key, partition, default = key.partition(":")
 
     def default_factory(key=key, default=default, convert=convert):
-        if key in os.environ:
-            return convert(os.environ[key])
-        else:
-            # if a partition was detected use anything after it, even an empty string
-            if partition == ":":
-                return convert(default)
-            else:
+        # the key is missing
+        if key not in os.environ:
+            # So was the partition: This is a mandatory field and it didn't provide a default.
+            if not partition:
                 raise KeyError(key)
+            # Use anything after the partition, even an empty string.
+            return convert(default)
+
+        return convert(os.environ[key])
 
     return dataclasses.field(default_factory=default_factory, **kwargs)

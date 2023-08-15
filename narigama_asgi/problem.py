@@ -5,6 +5,7 @@ import urllib.parse
 
 import fastapi
 import fastapi.responses
+from loguru import logger
 
 
 PROBLEM_HEADERS = {"Content-Type": "application/problem+json"}
@@ -26,6 +27,7 @@ class ProblemMeta(type):
         for key in ("status", "title", "kind"):
             if key not in attrs:
                 missing.append(key)
+
         if missing:
             fmt = "Can't build a Problem: {} is missing the field(s): {}"
             raise Exception(fmt.format(class_name, ", ".join(missing)))
@@ -64,7 +66,7 @@ class ProblemMeta(type):
 
 
 class Problem(Exception, metaclass=ProblemMeta):
-    """The Problem base class, extend this to build new problems.
+    """The Problem base class, extend this to build new Problems.
 
     class UserNotFound(Problem):
         status=404
@@ -105,10 +107,12 @@ def install(app: fastapi.FastAPI, handle_uncaught: bool = True) -> fastapi.FastA
             return await call_next(request)
 
         except Problem as ex:
+            logger.error(ex)
             # return standardised error for Problems
             return await problem_exception_handler(request, ex)
 
         except Exception as ex:
+            logger.error(ex)
             # convert uncaught errors into Problems, referencing the Error type in the description. otherwise dump it.
             if handle_uncaught:
                 return await problem_exception_handler(request, UncaughtException(ex.__class__.__name__))

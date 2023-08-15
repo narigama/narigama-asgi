@@ -26,9 +26,8 @@ def install(app: fastapi.FastAPI, postgres_dsn: str, application_name: str, **se
 
     @app.middleware("http")
     async def postgres_middleware(request: fastapi.Request, call_next):
-        async with request.app.state.database_pool.acquire() as database_connection:
-            async with database_connection.transaction():
-                request.state.database_connection = database_connection
-                return await call_next(request)
+        async with request.app.state.database_pool.acquire() as database_connection, database_connection.transaction():
+            request.state.database_connection = database_connection
+            return await call_next(request)
 
     return app
