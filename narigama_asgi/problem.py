@@ -11,7 +11,7 @@ from loguru import logger
 PROBLEM_HEADERS = {"Content-Type": "application/problem+json"}
 
 
-class ProblemMeta(type):
+class _ProblemMeta(type):
     """The Problem Metaclass, this will validate your Problems."""
 
     def __new__(cls, class_name, parents, attrs):  # noqa: D102
@@ -65,7 +65,7 @@ class ProblemMeta(type):
         return _cls
 
 
-class Problem(Exception, metaclass=ProblemMeta):
+class Problem(Exception, metaclass=_ProblemMeta):
     """The Problem base class, extend this to build new Problems.
 
     class UserNotFound(Problem):
@@ -98,7 +98,11 @@ async def problem_exception_handler(request: fastapi.Request, exc: Problem):
 
 
 def install(app: fastapi.FastAPI, handle_uncaught: bool = True) -> fastapi.FastAPI:
-    """Install an exception handler for Problems."""
+    """
+    Install an exception handler for Problems.
+    """
+    if getattr(app.state, "_narigama_problem_installed", False):
+        raise Exception("Problem has already been installed.")
 
     @app.middleware("http")
     async def uncaught_exception_to_problem_middleware(request: fastapi.Request, call_next):
@@ -118,7 +122,5 @@ def install(app: fastapi.FastAPI, handle_uncaught: bool = True) -> fastapi.FastA
                 return await problem_exception_handler(request, UncaughtException(ex.__class__.__name__))
             raise ex
 
-    # install a flag in app.state for other dependencies to find
-    app.state.problem_handler_installed = True
-
+    app.state._narigama_problem_installed = True
     return app

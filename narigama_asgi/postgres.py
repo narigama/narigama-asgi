@@ -9,6 +9,9 @@ async def get_db(request: fastapi.Request) -> asyncpg.Connection:
 
 
 def install(app: fastapi.FastAPI, postgres_dsn: str, application_name: str, **server_settings) -> fastapi.FastAPI:
+    if getattr(app.state, "_narigama_postgres_installed", False):
+        raise Exception("Postgres has already been installed.")
+
     @app.on_event("startup")
     async def postgres_startup():
         app.state.database_pool = await asyncpg.create_pool(
@@ -30,4 +33,5 @@ def install(app: fastapi.FastAPI, postgres_dsn: str, application_name: str, **se
             request.state.database_connection = database_connection
             return await call_next(request)
 
+    app.state._narigama_postgres_installed = True
     return app

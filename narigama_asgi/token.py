@@ -29,8 +29,8 @@ create table if not exists "token" (
 
 
 QUERY_TOKEN_CREATE = """
-insert into "token" ("expires_at", "key", "context")
-values ($1, $2, $3)
+insert into "token" ("created_at", "expires_at", "key", "context")
+values ($1, $2, $3, $4)
 returning "id", "created_at", "expires_at", "key", "context"
 """.strip()
 
@@ -55,21 +55,15 @@ where "expires_at" <= $1
 
 
 class TokenRequiredError(Problem):
-    status = 400
-    title = "A Token was not provided"
+    status = fastapi.status.HTTP_400_BAD_REQUEST
+    title = "A Token was required, but not provided"
     kind = "token-required"
 
 
 class TokenNotFoundError(Problem):
-    status = 404
-    title = "A Token was not found"
+    status = fastapi.status.HTTP_403_FORBIDDEN
+    title = "Token was not found"
     kind = "token-not-found"
-
-
-class TokenExpiredError(Problem):
-    status = 400
-    title = "The Token has expired"
-    kind = "token-expired"
 
 
 @dataclasses.dataclass()
@@ -92,6 +86,10 @@ class Token:
         )
 
 
+async def schema_create(db: asyncpg.Connection):
+    await db.execute(QUERY_TOKEN_SCHEMA_CREATE)
+
+
 async def token_get_by_key(db: asyncpg.Connection, token_key: str) -> Token:
     """Fetch a token by it's id."""
     row = await db.fetchrow(QUERY_TOKEN_GET_BY_KEY, token_key)
@@ -112,6 +110,8 @@ async def token_create(
     You'll be selecting this token by that key later. Store whatever you want
     in context.
     """
+    created_at = util.now()
+
     # int -> delta
     if isinstance(expires_at, int):
         expires_at = datetime.timedelta(seconds=expires_at)
@@ -122,7 +122,7 @@ async def token_create(
 
     key = key or secrets.token_urlsafe(32)
     context = json.dumps(context)
-    row = await db.fetchrow(QUERY_TOKEN_CREATE, expires_at, key, context)
+    row = await db.fetchrow(QUERY_TOKEN_CREATE, created_at, expires_at, key, context)
     return Token.from_row(row)
 
 
@@ -144,9 +144,9 @@ def token_require(*, name: str | None = None, handler=None):
 
     This function will by default, return the Token. If you wish to transform
     the token into another object, pass a `handler` coroutine that accepts a
-    database connection (asyncpg.Connection) and a token (Token), returning
-    whatever you want from that. The handler is also a good place to enforce
-    permissions if you're using some sort of ACLs.
+    request (fastapi.Request), database connection (asyncpg.Connection) and a
+    token (Token), returning whatever you want from that. The handler is also a
+    good place to enforce permissions if you're using some sort of ACLs.
     """
     name = name or "token"
 
@@ -182,16 +182,19 @@ def install(app: fastapi.FastAPI) -> fastapi.FastAPI:
 
     This will setup a `token` table within your database. Depends on `postgres`.
     """
+    if getattr(app.state, "_narigama_token_installed", False):
+        raise Exception("Token Manager has already been installed.")
 
     @app.on_event("startup")
     async def token_manager_startup():
-        if not getattr(app.state, "database_pool", None):
+        if not getattr(app.state, "_narigama_postgres_installed", False):
             raise KeyError("Token Manager depends on Postgres, install it first.")
 
-        if not getattr(app.state, "problem_handler_installed", False):
+        if not getattr(app.state, "_narigama_problem_installed", False):
             raise KeyError("Token Manager depends on HTTPProblem, install it first.")
 
         # create the token table if missing
-        await app.state.database_pool.execute(QUERY_TOKEN_SCHEMA_CREATE)
+        await schema_create(app.state.database_pool)
 
+    app.state._narigama_token_installed = True
     return app

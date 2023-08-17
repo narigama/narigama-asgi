@@ -41,7 +41,6 @@ def env(key, convert=str, **kwargs):
                 raise KeyError(key)
             # Use anything after the partition, even an empty string.
             return convert(default)
-
         return convert(os.environ[key])
 
     return dataclasses.field(default_factory=default_factory, **kwargs)

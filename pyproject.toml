@@ -20,13 +20,29 @@ asyncpg     = { version = "*" }
 fastapi     = { version = "*" }
 passlib     = { version = "*" }
 pypika      = { version = "*" }
-loguru      = { version = "*"}
+loguru      = { version = "*" }
 
 [tool.poetry.group.dev.dependencies]
 black   = { version = "*" }
 ipython = { version = "*" }
 ruff    = { version = "*" }
 uvicorn = { version = "*" }
+
+async-asgi-testclient = { version = "^1.4.11" }
+freezegun             = { version = "^1.2.2" }
+pytest                = { version = "^7.4.0" }
+pytest-random-order   = { version = "^1.1.0" }
+pytest-asyncio        = { version = "^0.21.1" }
+pytest-watcher        = { version = "^0.3.4" }
+pytest-env            = { version = "^0.8.2" }
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+addopts = "--random-order"
+env = [
+    # D: will rely on the shell's version if it's set
+    "D:DATABASE_URL = postgres://narigama:narigama@localhost:5432/narigama?sslmode=disable",
+]
 
 [tool.black]
 line-length    = 120
