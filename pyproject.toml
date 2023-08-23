@@ -27,6 +27,7 @@ black   = { version = "*" }
 ipython = { version = "*" }
 ruff    = { version = "*" }
 uvicorn = { version = "*" }
+invoke  = { version = "*" }
 
 async-asgi-testclient = { version = "^1.4.11" }
 freezegun             = { version = "^1.2.2" }
@@ -35,10 +36,11 @@ pytest-random-order   = { version = "^1.1.0" }
 pytest-asyncio        = { version = "^0.21.1" }
 pytest-watcher        = { version = "^0.3.4" }
 pytest-env            = { version = "^0.8.2" }
+pytest-cov            = { version = "^4.1.0" }
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-addopts = "--random-order"
+addopts      = "--random-order"
 
 [tool.black]
 line-length    = 120
