@@ -1,6 +1,7 @@
 import contextlib
 import dataclasses
 import enum
+import subprocess
 from unittest.mock import AsyncMock
 
 import asyncpg
@@ -9,6 +10,17 @@ import pytest
 from async_asgi_testclient import TestClient
 
 import narigama_asgi
+
+
+def get_host_and_port(service_name: str, internal_port: int) -> str:
+    command = "docker compose port {} {}".format(service_name, internal_port)
+    response = subprocess.run(command.split(), capture_output=True, text=True)
+    host, _, port = response.stdout.strip().partition(":")
+    return host, int(port)
+
+
+# extract these globals here so that `get_host_and_port` only has to run once
+POSTGRES_HOST, POSTGRES_PORT = get_host_and_port("postgres", 5432)
 
 
 class MockConnectionPool:
@@ -42,7 +54,8 @@ class Config:
 
 @pytest.fixture
 async def config():
-    yield Config()
+    database_url = "postgres://narigama:narigama@{}:{}/narigama?sslmode=disable".format(POSTGRES_HOST, POSTGRES_PORT)
+    return Config(database_url=database_url)
 
 
 @pytest.fixture()

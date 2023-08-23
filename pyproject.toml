@@ -39,10 +39,6 @@ pytest-env            = { version = "^0.8.2" }
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 addopts = "--random-order"
-env = [
-    # D: will rely on the shell's version if it's set
-    "D:DATABASE_URL = postgres://narigama:narigama@localhost:5432/narigama?sslmode=disable",
-]
 
 [tool.black]
 line-length    = 120

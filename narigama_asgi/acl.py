@@ -18,7 +18,7 @@ def permissions_enforce(permissions_claimed: set[P], permissions_required: set[P
     # ensure requirements are a subset of claimed...
     if not permissions_required <= permissions_claimed and raise_exception:
         # ...find the intersection, these are the missing claims
-        permission_missing = ", ".join(sorted(permissions_required ^ permissions_claimed))
+        permission_missing = ", ".join(sorted(permissions_required - permissions_claimed))
         err = "The request is missing the following permission(s): {}".format(permission_missing)
         raise PermissionMissing(err)
 
