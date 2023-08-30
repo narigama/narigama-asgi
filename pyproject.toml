@@ -30,6 +30,8 @@ uvicorn = { version = "*" }
 invoke  = { version = "*" }
 
 async-asgi-testclient = { version = "^1.4.11" }
+httpx                 = { version = "^0.24.1" }
+
 freezegun             = { version = "^1.2.2" }
 pytest                = { version = "^7.4.0" }
 pytest-random-order   = { version = "^1.1.0" }
