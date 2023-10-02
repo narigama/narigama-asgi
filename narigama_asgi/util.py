@@ -2,15 +2,13 @@ import dataclasses
 import datetime
 import os
 
-import arrow
-
 
 def now(precise=False) -> datetime.datetime:
     """Return a localised timestamp."""
-    timestamp = arrow.now().to("UTC")
+    timestamp = datetime.datetime.now(datetime.UTC)
     if not precise:
         timestamp = timestamp.replace(microsecond=0)
-    return timestamp.datetime
+    return timestamp
 
 
 def env(key, convert=str, **kwargs):

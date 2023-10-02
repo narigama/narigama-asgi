@@ -15,7 +15,6 @@ packages = [{ include = "narigama_asgi" }]
 python = "^3.11"
 
 argon2-cffi = { version = "*" }
-arrow       = { version = "*" }
 asyncpg     = { version = "*" }
 fastapi     = { version = "*" }
 passlib     = { version = "*" }

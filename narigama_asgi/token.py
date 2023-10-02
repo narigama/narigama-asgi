@@ -2,7 +2,6 @@ import dataclasses
 import datetime
 import json
 import secrets
-import uuid
 
 import asyncpg
 import fastapi
@@ -15,23 +14,27 @@ from narigama_asgi.problem import Problem
 
 QUERY_TOKEN_SCHEMA_CREATE = """
 create table if not exists "token" (
-    "id" uuid not null default gen_random_uuid(),
-    "created_at" timestamptz not null default date_trunc('second', current_timestamp),
-    "expires_at" timestamptz not null,
-
-    "key" text not null,
+    "id" text not null,
     "context" json not null default '{}'::json,
 
-    primary key("id"),
-    unique("key")
+    "created_at" timestamptz not null default date_trunc('second', current_timestamp),
+    "utility_at" timestamptz,
+    "expires_at" timestamptz,
+
+    primary key("id")
 );
 """.strip()
 
 
 QUERY_TOKEN_CREATE = """
-insert into "token" ("created_at", "expires_at", "key", "context")
-values ($1, $2, $3, $4)
-returning "id", "created_at", "expires_at", "key", "context"
+insert into "token" ("id", "context", "created_at", "utility_at", "expires_at")
+values ($1, $2, $3, $4, $5)
+""".strip()
+
+
+QUERY_TOKEN_GET_BY_ID = """
+select "id", "context", "created_at", "utility_at", "expires_at" from "token"
+where "id" = $1
 """.strip()
 
 
@@ -41,16 +44,9 @@ where "id" = $1
 """.strip()
 
 
-QUERY_TOKEN_GET_BY_KEY = """
-select "id", "created_at", "expires_at", "key", "context"
-from "token"
-where "key" = $1
-""".strip()
-
-
 QUERY_TOKEN_CLEANUP = """
 delete from "token"
-where "expires_at" <= $1
+where "expires_at" is not null and "expires_at" <= $1
 """.strip()
 
 
@@ -66,22 +62,27 @@ class TokenNotFoundError(Problem):
     kind = "token-not-found"
 
 
+class TokenUsedTooEarly(Problem):
+    status = fastapi.status.HTTP_400_BAD_REQUEST
+    title = "Token was used before intended scope."
+    kind = "token-used-too-early"
+
+
 @dataclasses.dataclass()
 class Token:
-    id: uuid.UUID
+    id: str  # secret
+    context: dict  # the payload stored server side for this token
     created_at: datetime.datetime
-    expires_at: datetime.datetime
-
-    key: str  # the unique key representing this token externally, sent to the client to identify this token
-    context: dict  # a payload for this Token, use it to store whatever you wish
+    utility_at: datetime.datetime | None  # don't use before
+    expires_at: datetime.datetime | None  # don't use after
 
     @classmethod
     def from_row(cls, row: asyncpg.Record):
         return cls(
             id=row["id"],
             created_at=row["created_at"],
+            utility_at=row["utility_at"],
             expires_at=row["expires_at"],
-            key=row["key"],
             context=json.loads(row["context"]),
         )
 
@@ -90,19 +91,38 @@ async def schema_create(db: asyncpg.Connection):
     await db.execute(QUERY_TOKEN_SCHEMA_CREATE)
 
 
-async def token_get_by_key(db: asyncpg.Connection, token_key: str) -> Token:
-    """Fetch a token by it's id."""
-    row = await db.fetchrow(QUERY_TOKEN_GET_BY_KEY, token_key)
+async def token_get_by_id(db: asyncpg.Connection, token_id: str) -> Token:
+    """Fetch a token by it's id. Don't return the token if it's either side of utility or expiry."""
+    row = await db.fetchrow(QUERY_TOKEN_GET_BY_ID, token_id)
     if not row:
-        raise TokenNotFoundError(token_key)
+        raise TokenNotFoundError(token_id)
+
     return Token.from_row(row)
+
+
+def _to_timestamp(timestamp: int | datetime.timedelta | datetime.datetime | None = None) -> datetime.datetime | None:
+    if timestamp is None:
+        return
+
+    # int -> delta
+    if isinstance(timestamp, int):
+        timestamp = datetime.timedelta(seconds=timestamp)
+
+    # delta -> timestamp
+    if isinstance(timestamp, datetime.timedelta):
+        timestamp = util.now() + timestamp
+
+    # timestamp
+    return timestamp
 
 
 async def token_create(
     db: asyncpg.Connection,
-    expires_at: int | datetime.timedelta | datetime.datetime,
     context: dict,
-    key: str | None = None,
+    *,
+    id: str | None = None,
+    utility_at: int | datetime.timedelta | datetime.datetime | None = None,
+    expires_at: int | datetime.timedelta | datetime.datetime | None = None,
 ) -> Token:
     """Create a new token.
 
@@ -112,18 +132,19 @@ async def token_create(
     """
     created_at = util.now()
 
-    # int -> delta
-    if isinstance(expires_at, int):
-        expires_at = datetime.timedelta(seconds=expires_at)
+    _id = id or secrets.token_urlsafe(32)
+    utility_at = _to_timestamp(utility_at)
+    expires_at = _to_timestamp(expires_at)
 
-    # delta -> timestamp
-    if isinstance(expires_at, datetime.timedelta):
-        expires_at = util.now() + expires_at
+    await db.execute(QUERY_TOKEN_CREATE, _id, json.dumps(context), created_at, utility_at, expires_at)
 
-    key = key or secrets.token_urlsafe(32)
-    context = json.dumps(context)
-    row = await db.fetchrow(QUERY_TOKEN_CREATE, created_at, expires_at, key, context)
-    return Token.from_row(row)
+    return Token(
+        id=_id,
+        context=context,
+        created_at=created_at,
+        utility_at=utility_at,
+        expires_at=expires_at,
+    )
 
 
 async def token_delete(db: asyncpg.Connection, token: Token):
@@ -159,19 +180,28 @@ def token_require(*, name: str | None = None, handler=None):
     ) -> Token:
         # before we start, cleanup any expired tokens, this spreads the cost of
         # cleanup and removes the requirement for a background task or cronjob
-        await token_cleanup_expired(db)
+        now = util.now()
+        await token_cleanup_expired(db, now)
 
         # grab the token_key in this order ->
-        token_key = token_query or token_header or token_cookie
+        token_id = token_query or token_header or token_cookie
 
         # no token was provided by any method :(
-        if not token_key:
+        if not token_id:
             raise TokenRequiredError(name)
 
         # load token by it's key, optionally transform
-        token = await token_get_by_key(db, token_key)
+        token = await token_get_by_id(db, token_id)
+
+        # make sure it's not too early to use it
+        if token.utility_at is not None and now < token.utility_at:
+            raise TokenUsedTooEarly(token.utility_at)
+
+        # transform the token into something else if a handler was provided
         if handler:
             return await handler(request, db, token)
+
+        # otherwise just return the token
         return token
 
     return fastapi.Depends(dep_get_token)

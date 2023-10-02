@@ -56,22 +56,22 @@ def _setup(app: fastapi.FastAPI, config):
     [
         60,  # seconds
         datetime.timedelta(seconds=60),  # delta
-        datetime.datetime.fromisoformat("2022-01-01T00:00:00"),  # fixed timestamp
+        datetime.datetime.fromisoformat("2022-01-01T00:00:00+00:00"),  # fixed timestamp
     ],
 )
 # include the client to get the middleware to run, this is required to install the token table
 async def test_token_create(client: TestClient, db: asyncpg.Connection, expires_at):
     context = {"kind": "test", "email": "david@narigama.dev"}
-    token = await narigama_asgi.token.token_create(db, expires_at, context)
+    token = await narigama_asgi.token.token_create(db, context, expires_at=expires_at)
 
     # grab the row
-    row = await db.fetchrow("select * from token where key = $1", token.key)
+    row = await db.fetchrow("select * from token where id = $1", token.id)
 
     # check table is sane
     assert token.id == row["id"]
     assert token.created_at == row["created_at"]
+    assert token.utility_at == row["utility_at"]
     assert token.expires_at == row["expires_at"]
-    assert token.key == row["key"]
     assert token.context == json.loads(row["context"])
 
     # check from_row also works
@@ -80,7 +80,7 @@ async def test_token_create(client: TestClient, db: asyncpg.Connection, expires_
 
 async def test_token_delete(db: asyncpg.Connection, client: TestClient):
     # first, create the token
-    token = await narigama_asgi.token.token_create(db, 60, {})
+    token = await narigama_asgi.token.token_create(db, {}, expires_at=60)
     token_id = await db.fetchval("select id from token where id=$1", token.id)
     assert token.id == token_id
 
@@ -96,7 +96,7 @@ async def test_token_cleanup_expired(db: asyncpg.Connection, client: TestClient)
     # create the token
     with freezegun.freeze_time(now):
         # expire in 10 seconds
-        token = await narigama_asgi.token.token_create(db, now + datetime.timedelta(10), {})
+        token = await narigama_asgi.token.token_create(db, {}, expires_at=now + datetime.timedelta(10))
         await narigama_asgi.token.token_cleanup_expired(db)  # demonstrate the token survives this purge
 
         # prove the token survives this purge
@@ -112,24 +112,26 @@ async def test_token_cleanup_expired(db: asyncpg.Connection, client: TestClient)
         assert token_id is None
 
 
-async def test_token_get_by_key(db: asyncpg.Connection, client: TestClient):
+async def test_token_get_by_id(db: asyncpg.Connection, client: TestClient):
     # insert the row, then refetch it
-    token = await narigama_asgi.token.token_create(db, 60, {"kind": "test", "email": "david@narigama.dev"})
-    assert await narigama_asgi.token.token_get_by_key(db, token.key) == token
+    context = {"kind": "test", "email": "david@narigama.dev"}
+    token = await narigama_asgi.token.token_create(db, context, expires_at=60)
+    assert await narigama_asgi.token.token_get_by_id(db, token.id) == token
 
 
 async def test_token_required_by_header(db: asyncpg.Connection, client: TestClient):
     with freezegun.freeze_time("2022-01-01T00:00:00"):
         # create a token, make a valid request
-        token = await narigama_asgi.token.token_create(db, 60, {"email": "david@narigama.dev"})
-        response = await client.post("/", headers={"token": token.key})
+        context = {"email": "david@narigama.dev"}
+        token = await narigama_asgi.token.token_create(db, context, expires_at=60)
+        response = await client.post("/", headers={"token": token.id})
 
     assert response.status_code == fastapi.status.HTTP_200_OK
     assert response.json() == {
         "token": {
             "id": str(token.id),
-            "key": token.key,
             "created_at": "2022-01-01T00:00:00+00:00",
+            "utility_at": None,
             "expires_at": "2022-01-01T00:01:00+00:00",
             "context": {"email": "david@narigama.dev"},
         }
@@ -139,15 +141,16 @@ async def test_token_required_by_header(db: asyncpg.Connection, client: TestClie
 async def test_token_required_by_query(db: asyncpg.Connection, client: TestClient):
     with freezegun.freeze_time("2022-01-01T00:00:00"):
         # create a token, make a valid request
-        token = await narigama_asgi.token.token_create(db, 60, {"email": "david@narigama.dev"})
-        response = await client.post("/?token={}".format(token.key))
+        context = {"email": "david@narigama.dev"}
+        token = await narigama_asgi.token.token_create(db, context, expires_at=60)
+        response = await client.post("/?token={}".format(token.id))
 
     assert response.status_code == fastapi.status.HTTP_200_OK
     assert response.json() == {
         "token": {
             "id": str(token.id),
-            "key": token.key,
             "created_at": "2022-01-01T00:00:00+00:00",
+            "utility_at": None,
             "expires_at": "2022-01-01T00:01:00+00:00",
             "context": {"email": "david@narigama.dev"},
         }
@@ -157,15 +160,16 @@ async def test_token_required_by_query(db: asyncpg.Connection, client: TestClien
 async def test_token_required_by_cookie(db: asyncpg.Connection, client: TestClient):
     with freezegun.freeze_time("2022-01-01T00:00:00"):
         # create a token, make a valid request
-        token = await narigama_asgi.token.token_create(db, 60, {"email": "david@narigama.dev"})
-        response = await client.post("/", cookies={"token": token.key})
+        context = {"email": "david@narigama.dev"}
+        token = await narigama_asgi.token.token_create(db, context, expires_at=60)
+        response = await client.post("/", cookies={"token": token.id})
 
     assert response.status_code == fastapi.status.HTTP_200_OK
     assert response.json() == {
         "token": {
             "id": str(token.id),
-            "key": token.key,
             "created_at": "2022-01-01T00:00:00+00:00",
+            "utility_at": None,
             "expires_at": "2022-01-01T00:01:00+00:00",
             "context": {"email": "david@narigama.dev"},
         }
@@ -190,19 +194,19 @@ async def test_token_required_but_missing(db: asyncpg.Connection, client: TestCl
 async def test_token_required_but_expired(db: asyncpg.Connection, client: TestClient):
     with freezegun.freeze_time("2022-01-01T00:00:00"):
         # create a new token, check it's there
-        token = await narigama_asgi.token.token_create(db, 60, {})
-        assert await db.fetchrow("select * from token where key = $1", token.key) is not None
+        token = await narigama_asgi.token.token_create(db, {}, expires_at=60)
+        assert await db.fetchrow("select * from token where id = $1", token.id) is not None
 
     with freezegun.freeze_time("2022-01-01T00:01:00"):
         # now a minute has passed, the token will get cleaned up when attempting to use it
-        response = await client.post("/", headers={"token": token.key})
-        assert await db.fetchrow("select * from token where key = $1", token.key) is None
+        response = await client.post("/", headers={"token": token.id})
+        assert await db.fetchrow("select * from token where id = $1", token.id) is None
 
     # assert a normal "forbidden" response
     assert response.status_code == fastapi.status.HTTP_403_FORBIDDEN
     assert response.json() == {
         "status": 403,
-        "detail": token.key,  # this is the token you provided
+        "detail": token.id,  # this is the token you provided
         "title": "Token was not found",
         "instance": "http://localhost/",
         "type": "http://localhost/problem/token-not-found",
@@ -214,11 +218,11 @@ async def test_token_handler(db: asyncpg.Connection, client: TestClient):
 
     # create a new token, check it's there
     with freezegun.freeze_time("2022-01-01T00:00:00"):
-        token = await narigama_asgi.token.token_create(db, 60, context)
-        assert await db.fetchrow("select * from token where key = $1", token.key) is not None
+        token = await narigama_asgi.token.token_create(db, context, expires_at=60)
+        assert await db.fetchrow("select * from token where id = $1", token.id) is not None
 
         # now fetch using the endpoint with the token handler
-        response = await client.post("/user", headers={"token": token.key})
+        response = await client.post("/user", headers={"token": token.id})
 
     assert response.status_code == fastapi.status.HTTP_200_OK
     assert response.json() == {
